@@ -22,7 +22,7 @@ detector = vision.HandLandmarker.create_from_options(options)
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Which landmark indices connect to which, to draw the "hand skeleton"
-HAND_CONNECTIONS = [
+HAND_CONNECTIONS = [   
     (0, 1), (1, 2), (2, 3), (3, 4),          # thumb
     (0, 5), (5, 6), (6, 7), (7, 8),          # index
     (0, 9), (9, 10), (10, 11), (11, 12),     # middle
@@ -54,7 +54,7 @@ def landmark_distance(a, b):
 
 def finger_curl_ratio(landmarks, mcp, pip, dip, tip):
     """
-    Near 1.0 = finger is straight.
+    Near 1.0 = finger is straight.   
     Near 0.0 = finger is curled back toward the palm.
 
     This is orientation-independent: it works for upright, sideways,
@@ -72,37 +72,75 @@ def finger_curl_ratio(landmarks, mcp, pip, dip, tip):
     return landmark_distance(landmarks[mcp], landmarks[tip]) / bone_length
 
 def detect_gesture(landmarks):
-    thumb_ratio = finger_curl_ratio(landmarks, 1, 2, 3, 4)
     index_ratio = finger_curl_ratio(landmarks, 5, 6, 7, 8)
     middle_ratio = finger_curl_ratio(landmarks, 9, 10, 11, 12)
     ring_ratio = finger_curl_ratio(landmarks, 13, 14, 15, 16)
     pinky_ratio = finger_curl_ratio(landmarks, 17, 18, 19, 20)
 
-    # A straight finger has a ratio near 1.0.
-    thumb_extended = thumb_ratio > 0.78
+    # Straight fingers have ratios close to 1.0.
     index_extended = index_ratio > 0.78
     middle_extended = middle_ratio > 0.78
     ring_extended = ring_ratio > 0.78
-    pink_extended = pinky_ratio > 0.68
+    pinky_extended = pinky_ratio > 0.78
 
-    # A curled finger has a much smaller ratio.
-    thumb_folded = thumb_ratio < 0.72
+    # Curled fingers have lower ratios.
     index_folded = index_ratio < 0.72
     middle_folded = middle_ratio < 0.72
     ring_folded = ring_ratio < 0.72
     pinky_folded = pinky_ratio < 0.72
 
-    # Peace: index + middle straight; ring + pinky curled.
-    if index_extended and middle_extended and ring_folded and pinky_folded:
+    # Detect whether the thumb is outside the palm area.
+    palm_width = landmark_distance(landmarks[5], landmarks[17])
+
+    palm_center_x = (
+        landmarks[5].x + landmarks[9].x +
+        landmarks[13].x + landmarks[17].x
+    ) / 4.0
+
+    palm_center_y = (
+        landmarks[5].y + landmarks[9].y +
+        landmarks[13].y + landmarks[17].y
+    ) / 4.0
+
+    palm_center_z = (
+        landmarks[5].z + landmarks[9].z +
+        landmarks[13].z + landmarks[17].z
+    ) / 4.0
+
+    thumb_to_palm_center = (
+        (landmarks[4].x - palm_center_x) ** 2 +
+        (landmarks[4].y - palm_center_y) ** 2 +
+        (landmarks[4].z - palm_center_z) ** 2
+    ) ** 0.5
+
+    thumb_extended = thumb_to_palm_center > palm_width * 1.25
+
+    # 1. Thumbs up: thumb out, other fingers curled.
+    if (thumb_extended and index_folded and middle_folded
+            and ring_folded and pinky_folded):
+        return "THUMBS_UP"
+
+    # 2. Peace: index and middle out; ring, pinky, and thumb tucked.
+    if (index_extended and middle_extended and
+            ring_folded and pinky_folded and
+            not thumb_extended):
         return "PEACE"
 
-    # Fist: all four fingers curled.
-    if thumb_folded and index_folded and middle_folded and ring_folded and pinky_folded:
-        return "CLOSED_FIST"
+    # 3. Point: index out; middle, ring, and pinky curled.
+    if (index_extended and middle_folded and
+            ring_folded and pinky_folded):
+        return "POINT"
 
-    #Thumbs up: 
-    if thumb_extended and index_folded and middle_folded and ring_folded and pinky_folded:
-        return "THUMBS_UP"
+    # 4. Open palm: all fingers and thumb extended.
+    if (thumb_extended and index_extended and middle_extended
+            and ring_extended and pinky_extended):
+        return "OPEN_PALM"
+
+    # 5. Closed fist: all fingers curled and thumb not out.
+    if (index_folded and middle_folded and
+            ring_folded and pinky_folded and
+            not thumb_extended):
+        return "CLOSED_FIST"
 
     return "NONE"
 
