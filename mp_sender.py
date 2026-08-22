@@ -113,7 +113,7 @@ def detect_gesture(landmarks):
         (landmarks[4].z - palm_center_z) ** 2
     ) ** 0.5
 
-    thumb_extended = thumb_to_palm_center > palm_width * 0.85
+    thumb_extended = thumb_to_palm_center > palm_width * 1.25
 
     # 1. Thumbs up: thumb out, other fingers curled.
     if (thumb_extended and index_folded and middle_folded
