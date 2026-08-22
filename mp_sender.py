@@ -1,6 +1,7 @@
 import cv2
 import socket
 import json
+import time
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
@@ -113,7 +114,7 @@ def detect_gesture(landmarks):
         (landmarks[4].z - palm_center_z) ** 2
     ) ** 0.5
 
-    thumb_extended = thumb_to_palm_center > palm_width * 0.85
+    thumb_extended = thumb_to_palm_center > palm_width * 1.25
 
     # 1. Thumbs up: thumb out, other fingers curled.
     if (thumb_extended and index_folded and middle_folded
@@ -157,6 +158,9 @@ while True:
     if not ret:
         break
 
+    #start time for latency
+    t_capture = time.time()
+    
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
@@ -169,18 +173,36 @@ while True:
 
         detected_gesture = detect_gesture(landmarks)
 
-        landmark_list = [[round(lm.x, 4), round(lm.y, 4), round(lm.z, 4)] for lm in landmarks]
+        #noise reduction using moving average
+        current_lm = [[lm.x, lm.y, lm.z] for lm in landmarks]
+        if previous_landmarks is None:
+            smoothed_lm = current_lm
+        else:
+            smoothed_lm = []
+            for i in range(21):
+                sx = previous_landmarks[i][0] * (1 - SMOOTHING_FACTOR) + current_lm[i][0] * SMOOTHING_FACTOR
+                sy = previous_landmarks[i][1] * (1 - SMOOTHING_FACTOR) + current_lm[i][1] * SMOOTHING_FACTOR
+                sz = previous_landmarks[i][2] * (1 - SMOOTHING_FACTOR) + current_lm[i][2] * SMOOTHING_FACTOR
+                smoothed_lm.append([sx, sy, sz])
+                
+        previous_landmarks = smoothed_lm
+        landmark_list = [[round(x, 4), round(y, 4), round(z, 4)] for x, y, z in smoothed_lm]
 
+        #stop time and send packet to blender script
+        t_send = time.time()
+        
         packet = {
             "landmarks": landmark_list,
             "gesture": detected_gesture, 
             "confidence": 0.0,       
+            "t_capture": t_capture,
+            "t_send": t_send
         }
 
-        message = json.dumps(packet).encode("utf-8")
-        sock.sendto(message, (HOST, PORT))
-        print(f"Sent landmarks, first point: {landmark_list[0]}")
+        sock.sendto(json.dumps(packet).encode("utf-8"), (HOST, PORT))
     else:
+        #previous landmarks set to 0 after no tracking
+        previous_landmarks = None
         reset_packet = {
             "landmarks": None,
             "gesture": "NONE",
