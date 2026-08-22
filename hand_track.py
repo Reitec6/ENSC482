@@ -9,7 +9,11 @@ UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 UPDATE_INTERVAL = 1.0 / 30.0
 ARMATURE_NAME = "Armature"  # Ensure this matches your Armature name
+REPORT_INTERVAL = 3.0 # Report interval of delay metrics in seconds
 
+if "last_report_time" not in globals():
+    globals()["last_report_time"] = 0.0
+    
 # EXACT BONE MAPPING (Start ID, End ID)
 BONE_MAPPING = {
     "Hand": (0, 9),          # Wrist to Middle Knuckle
@@ -563,6 +567,34 @@ def update_hand_pose():
 
         # Run object interaction once, after all hand landmarks update.
         update_simple_interaction(gesture, raw_gesture)
+
+        #TIMING
+        #---------------------------------------
+        # Record and paste timing
+        bpy.context.view_layer.update()
+        t_blender_done = time.time()
+        
+        # get time sent by packets
+        t_capture = packet.get("t_capture")
+        t_send = packet.get("t_send")
+        
+        
+        if t_capture and t_send:
+            
+            time_since_last = t_blender_done - globals().get("last_report_time", 0.0)
+            
+            if time_since_last >= REPORT_INTERVAL:
+                total_delay_ms = (t_blender_done - t_capture) * 1000
+                inference_delay_ms = (t_send - t_capture) * 1000
+                blender_udp_delay_ms = (t_blender_done - t_send) * 1000
+
+                report_msg = (
+                    f"Latency: {total_delay_ms:.1f}ms "
+                    f"[CV: {inference_delay_ms:.1f}ms | UDP+Blender: {blender_udp_delay_ms:.1f}ms]"
+                )
+                print(report_msg)
+
+                globals()["last_report_time"] = t_blender_done
 
     except BlockingIOError:
         pass
